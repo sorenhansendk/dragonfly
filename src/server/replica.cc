@@ -902,25 +902,43 @@ void Replica::StableSyncDflyReadFb(Context* cntx) {
 
   JournalReader reader{&ps, 0};
   TransactionReader tx_reader{};
+  std::string ack_cmd;
+  time_t last_ack = 0;
+  ReqSerializer serializer{sock_.get()};
+
   while (!cntx->IsCancelled()) {
+    VLOG(2) << "Waiting for buffer to be available";
     waker_.await([&]() {
       return ((trans_data_queue_.size() < kYieldAfterItemsInQueue) || cntx->IsCancelled());
     });
     if (cntx->IsCancelled())
       break;
 
+    VLOG(2) << "Reading next transaction";
     auto tx_data = tx_reader.NextTxData(&reader, cntx);
     if (!tx_data)
       break;
 
     last_io_time_ = sock_->proactor()->GetMonotonicTimeNs();
 
+    VLOG(2) << "Executing next transaction";
     if (use_multi_shard_exe_sync_) {
       InsertTxDataToShardResource(std::move(*tx_data));
     } else {
       ExecuteTxWithNoShardSync(std::move(*tx_data), cntx);
     }
 
+    // Send repl ack back to master.
+    if (repl_offs_ > ack_offs_ + 1024 || time(nullptr) > last_ack + 1) {
+      LOG(INFO) << "Sending an ack";
+      ack_cmd = absl::StrCat("REPLCONF ACK ", repl_offs_);
+      last_ack = time(nullptr);
+      CHECK(!SendCommand(ack_cmd, &serializer));
+    } else {
+      LOG(INFO) << "Not sending an ack";
+    }
+
+    LOG(INFO) << "done";
     waker_.notify();
   }
 }
@@ -1316,6 +1334,7 @@ auto Replica::TransactionReader::NextTxData(JournalReader* reader, Context* cntx
     -> optional<TransactionData> {
   io::Result<journal::ParsedEntry> res;
   while (true) {
+    VLOG(2) << "Reading next tx entry";
     if (res = reader->ReadEntry(); !res) {
       cntx->ReportError(res.error());
       return std::nullopt;
@@ -1332,6 +1351,7 @@ auto Replica::TransactionReader::NextTxData(JournalReader* reader, Context* cntx
 
     auto txid = res->txid;
     auto& txdata = current_[txid];
+    VLOG(2) << "Adding entry to txdata";
     if (txdata.AddEntry(std::move(res.value()))) {
       auto out = std::move(txdata);
       current_.erase(txid);
