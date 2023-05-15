@@ -2125,19 +2125,8 @@ void ServerFamily::ReplConf(CmdArgList args, ConnectionContext* cntx) {
       // Don't send error/Ok back through the socket, because we don't want to interleave with
       // the journal writes that we write into the same socket.
 
-      if (!cntx->replication_flow) {
-        LOG(ERROR) << "No replication flow assigned";
-        return;
-      }
+      goto err;
 
-      int64_t ack;
-      if (!absl::SimpleAtoi(arg, &ack)) {
-        LOG(ERROR) << "Bad int in REPLCONF ACK command! arg=" << arg;
-        return;
-      }
-      VLOG(1) << "Received client ACK=" << ack;
-      cntx->replication_flow->last_ack = ack;
-      return;
     } else {
       VLOG(1) << cmd << " " << arg << " " << args.size();
       goto err;
