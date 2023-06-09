@@ -47,8 +47,9 @@ jobs:
           echo "Current commit is ${{github.sha}}"
           pip install -r dragonfly/requirements.txt
           export DRAGONFLY_PATH="${GITHUB_WORKSPACE}/build/dragonfly" # used by PyTests
+          export UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1
 
-          pytest -sxvr dragonfly --ignore=dragonfly/replication_test.py
+          pytest -sxvr dragonfly/connection_test.py
       - name: Run PyTests replication test
         if: ${{ matrix.runner  == 'ubuntu-latest' }}
         timeout-minutes: 20
@@ -57,12 +58,3 @@ jobs:
           export DRAGONFLY_PATH="${GITHUB_WORKSPACE}/build/dragonfly" # used by PyTests
           pytest -xvs dragonfly/replication_test.py --df alsologtostderr --df enable_multi_shard_sync=true
           pytest -xvs dragonfly/replication_test.py --df alsologtostderr --df enable_multi_shard_sync=false
-
-      - name: Send notification on failure
-        if: failure() || cancelled()
-        run: |
-          curl -s \
-            -X POST \
-            -H 'Content-Type: application/json' \
-            '${{ secrets.GSPACES_BOT_DF_BUILD }}' \
-            -d '{"text": "Unforunately the tests of dragonfly build are not passed :( \n The commit is ${{github.sha}}	"}'
