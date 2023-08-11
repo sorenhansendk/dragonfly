@@ -200,20 +200,18 @@ uint32_t EngineShard::DefragTask() {
 EngineShard::EngineShard(util::ProactorBase* pb, bool update_db_time, mi_heap_t* heap)
     : queue_(kQueueLen), txq_([](const Transaction* t) { return t->txid(); }), mi_resource_(heap),
       db_slice_(pb->GetIndex(), GetFlag(FLAGS_cache_mode), this) {
-  fiber_q_ = MakeFiber([this, index = pb->GetIndex()] {
-    ThisFiber::SetName(absl::StrCat("shard_queue", index));
-    queue_.Run();
-  });
+  fiber_q_ = fb2::Fiber{absl::StrCat("shard_queue", pb->GetIndex()),
+                        [this, index = pb->GetIndex()] { queue_.Run(); }};
 
+  fq2_ = fb2::Fiber{absl::StrCat("evalq", pb->GetIndex()), [this] { queue2_.Run(); }};
   if (update_db_time) {
     uint32_t clock_cycle_ms = 1000 / std::max<uint32_t>(1, GetFlag(FLAGS_hz));
     if (clock_cycle_ms == 0)
       clock_cycle_ms = 1;
 
-    fiber_periodic_ = MakeFiber([this, index = pb->GetIndex(), period_ms = clock_cycle_ms] {
-      ThisFiber::SetName(absl::StrCat("shard_periodic", index));
-      RunPeriodic(std::chrono::milliseconds(period_ms));
-    });
+    fiber_periodic_ = fb2::Fiber{
+        absl::StrCat("shard_periodic", pb->GetIndex()),
+        [this, period_ms = clock_cycle_ms] { RunPeriodic(std::chrono::milliseconds(period_ms)); }};
   }
 
   tmp_str1 = sdsempty();
@@ -229,7 +227,9 @@ EngineShard::~EngineShard() {
 
 void EngineShard::Shutdown() {
   queue_.Shutdown();
+  queue2_.Shutdown();
   fiber_q_.Join();
+  fq2_.Join();
 
   if (tiered_storage_) {
     tiered_storage_->Shutdown();
@@ -566,6 +566,7 @@ void EngineShardSet::Init(uint32_t sz, bool update_db_time) {
   CHECK_EQ(0u, size());
   cached_stats.resize(sz);
   shard_queue_.resize(sz);
+  shard_queue2.resize(sz);
 
   pp_->AwaitFiberOnAll([&](uint32_t index, ProactorBase* pb) {
     if (index < shard_queue_.size()) {
@@ -582,6 +583,7 @@ void EngineShardSet::InitThreadLocal(ProactorBase* pb, bool update_db_time) {
   EngineShard::InitThreadLocal(pb, update_db_time);
   EngineShard* es = EngineShard::tlocal();
   shard_queue_[es->shard_id()] = es->GetFiberQueue();
+  shard_queue2[es->shard_id()] = &es->queue2_;
 }
 
 const vector<EngineShardSet::CachedStats>& EngineShardSet::GetCachedStats() {

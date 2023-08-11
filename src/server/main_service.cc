@@ -1459,9 +1459,24 @@ void Service::EvalInternal(const EvalArgs& eval_args, Interpreter* interpreter,
 
   Interpreter::RunResult result;
   optional<ShardId> sid = GetRemoteShardToRunAt(*tx);
+
   if (sid.has_value()) {
-    // If script runs on a single shard, we run it remotely to save hops.
-    pp_.at(sid.value())->Await([&]() { result = interpreter->RunFunction(eval_args.sha, &error); });
+    /*cntx->transaction->ScheduleSingleHop([&](Transaction* t, auto* shard) {
+      result = interpreter->RunFunction(eval_args.sha, &error);
+      return OpStatus::OK;
+    });*/
+    auto* ss = ServerState::tlocal();
+    if (tx->IsOOO()) {
+      ++ss->stats.q2_calls;
+      result = shard_set->shard_queue2[*sid]->Await(
+          [&] { return interpreter->RunFunction(eval_args.sha, &error); });
+    } else {
+      ++ss->stats.await_calls;
+      // If script runs on a single shard, we run it remotely to save hops.
+      pp_.at(sid.value())->Await([&]() {
+        result = interpreter->RunFunction(eval_args.sha, &error);
+      });
+    }
   } else {
     result = interpreter->RunFunction(eval_args.sha, &error);
   }

@@ -90,6 +90,8 @@ class ServerState {  // public struct - to allow initialization.
  public:
   struct Stats {
     uint64_t ooo_tx_cnt = 0;
+    uint64_t q2_calls = 0;
+    uint64_t await_calls = 0;
   };
 
   static ServerState* tlocal() {

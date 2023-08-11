@@ -159,6 +159,8 @@ class EngineShard {
 
   void TEST_EnableHeartbeat();
 
+  FiberQueue queue2_;
+
  private:
   struct DefragTaskState {
     // we will add more data members later
@@ -200,7 +202,7 @@ class EngineShard {
   bool DoDefrag();
 
   FiberQueue queue_;
-  Fiber fiber_q_;
+  Fiber fiber_q_, fq2_;
 
   TxQueue txq_;
   MiMemoryResource mi_resource_;
@@ -309,6 +311,8 @@ class EngineShardSet {
   // Used in tests
   void TEST_EnableHeartBeat();
   void TEST_EnableCacheMode();
+
+  std::vector<FiberQueue*> shard_queue2;
 
  private:
   void InitThreadLocal(util::ProactorBase* pb, bool update_db_time);
