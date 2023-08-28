@@ -139,8 +139,11 @@ class DflyCmd {
   // Return connection thread index or migrate to another thread.
   void Thread(CmdArgList args, ConnectionContext* cntx);
 
-  // FLOW <masterid> <syncid> <flowid>
+  // FLOW <masterid> <syncid> <flowid> [<seqid>]
   // Register connection as flow for sync session.
+  // If seqid is given, it means the client wants to try partial sync.
+  // If it is possible, return Ok and prepare for a partial sync, else
+  // return error and ask the replica to execute FLOW again.
   void Flow(CmdArgList args, ConnectionContext* cntx);
 
   // SYNC <syncid>

@@ -56,7 +56,8 @@ class JournalSlice {
 
   // std::string shard_path_;
   // std::unique_ptr<LinuxFile> shard_file_;
-  // std::optional<base::RingBuffer<RingItem>> ring_buffer_;
+  std::optional<base::RingBuffer<RingItem>> ring_buffer_;
+  base::IoBuf ring_serialize_buf_;
 
   mutable util::SharedMutex cb_mu_;
   std::vector<std::pair<uint32_t, ChangeCallback>> change_cb_arr_ ABSL_GUARDED_BY(cb_mu_);

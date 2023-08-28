@@ -4,8 +4,11 @@
 
 #include "server/journal/serializer.h"
 
+#include <system_error>
+
 #include "base/io_buf.h"
 #include "base/logging.h"
+#include "glog/logging.h"
 #include "io/io.h"
 #include "server/common.h"
 #include "server/error.h"
@@ -106,7 +109,11 @@ std::error_code JournalReader::EnsureRead(size_t num) {
   // Try reading at least how much we need, but possibly more
   uint64_t read;
   SET_OR_RETURN(source_->ReadAtLeast(buf_.AppendBuffer(), remainder), read);
-  CHECK(read >= remainder);
+
+  // Happens on end of stream (for example, a too-small string buffer or a closed socket)
+  if (read < remainder) {
+    return make_error_code(errc::io_error);
+  }
 
   buf_.CommitWrite(read);
   return {};

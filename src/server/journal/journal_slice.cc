@@ -10,7 +10,10 @@
 
 #include <filesystem>
 
+#include "absl/strings/escaping.h"
+#include "base/function2.hpp"
 #include "base/logging.h"
+#include "server/journal/serializer.h"
 
 namespace dfly {
 namespace journal {
@@ -36,8 +39,7 @@ string ShardName(std::string_view base, unsigned index) {
 
 struct JournalSlice::RingItem {
   LSN lsn;
-  TxId txid;
-  Op opcode;
+  std::string data;
 };
 
 JournalSlice::JournalSlice() {
@@ -48,11 +50,11 @@ JournalSlice::~JournalSlice() {
 }
 
 void JournalSlice::Init(unsigned index) {
-  // if (ring_buffer_)  // calling this function multiple times is allowed and it's a no-op.
-  //   return;
+  if (ring_buffer_)  // calling this function multiple times is allowed and it's a no-op.
+    return;
 
   slice_index_ = index;
-  // ring_buffer_.emplace(128);  // TODO: to make it configurable
+  ring_buffer_.emplace(1024);  // TODO: to make it configurable
 }
 
 #if 0
@@ -117,19 +119,24 @@ error_code JournalSlice::Close() {
 #endif
 
 void JournalSlice::AddLogRecord(const Entry& entry, bool await) {
-  // DCHECK(ring_buffer_);
-  if (entry.opcode != Op::NOOP) {
-    lsn_++;
-// TODO: This is preparation for AOC style journaling, currently unused.
+  DCHECK(ring_buffer_);
+
+  // TODO: Re-enable whatever the noop functionality did.
+  if (entry.opcode == Op::NOOP)
+    return;
+  lsn_++;
+  RingItem* item = ring_buffer_->GetTail(true);
+
+  io::BufSink buf_sink{&ring_serialize_buf_};
+  JournalWriter writer{&buf_sink};
+  writer.Write(entry);
+
+  item->data = io::View(ring_serialize_buf_.InputBuffer());
+  ring_serialize_buf_.Clear();
+
+  VLOG(1) << "Writing item [" << item->lsn << "]: " << entry.ToString();
+
 #if 0
-    RingItem item;
-    item.lsn = prev_lsn;
-
-    item.opcode = entry.opcode;
-    item.txid = entry.txid;
-    VLOG(1) << "Writing item [" << item.lsn << "]: " << entry.ToString();
-    ring_buffer_->EmplaceOrOverride(move(item));
-
     if (shard_file_) {
       string line = absl::StrCat(item.lsn, " ", entry.txid, " ", entry.opcode, "\n");
       error_code ec = shard_file_->Write(io::Buffer(line), file_offset_, 0);
@@ -137,7 +144,6 @@ void JournalSlice::AddLogRecord(const Entry& entry, bool await) {
       file_offset_ += line.size();
     }
 #endif
-  }
 
   {
     std::shared_lock lk(cb_mu_);
@@ -145,7 +151,7 @@ void JournalSlice::AddLogRecord(const Entry& entry, bool await) {
              << " num callbacks: " << change_cb_arr_.size();
 
     for (const auto& k_v : change_cb_arr_) {
-      k_v.second(entry, await);
+      k_v.second(item->data, await);
     }
   }
 }

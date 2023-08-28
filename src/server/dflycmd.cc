@@ -11,10 +11,12 @@
 #include <optional>
 #include <utility>
 
+#include "absl/strings/numbers.h"
 #include "base/flags.h"
 #include "base/logging.h"
 #include "facade/dragonfly_connection.h"
 #include "facade/dragonfly_listener.h"
+#include "facade/error.h"
 #include "server/engine_shard_set.h"
 #include "server/error.h"
 #include "server/journal/journal.h"
@@ -112,7 +114,7 @@ void DflyCmd::Run(CmdArgList args, ConnectionContext* cntx) {
     return Thread(args, cntx);
   }
 
-  if (sub_cmd == "FLOW" && args.size() == 4) {
+  if (sub_cmd == "FLOW" && (args.size() == 4 || args.size() == 5)) {
     return Flow(args, cntx);
   }
 
@@ -239,8 +241,18 @@ void DflyCmd::Flow(CmdArgList args, ConnectionContext* cntx) {
   string_view sync_id_str = ArgS(args, 2);
   string_view flow_id_str = ArgS(args, 3);
 
-  VLOG(1) << "Got DFLY FLOW " << master_id << " " << sync_id_str << " " << flow_id_str;
+  std::optional<int64_t> seqid;
+  if (args.size() == 5) {
+    seqid.emplace();
+    if (!absl::SimpleAtoi(ArgS(args, 4), &seqid.value())) {
+      return rb->SendError(facade::kInvalidIntErr);
+    }
+  }
 
+  VLOG(1) << "Got DFLY FLOW master_id: " << master_id << " sync_id: " << sync_id_str
+          << " flow: " << flow_id_str << " seq: " << seqid.value_or(-1);
+
+  // TODO: Allow partial sync from a previous shared master.
   if (master_id != sf_->master_id()) {
     return rb->SendError(kBadMasterId);
   }

@@ -10,14 +10,11 @@ using namespace util;
 void JournalStreamer::Start(io::Sink* dest) {
   using namespace journal;
   write_fb_ = fb2::Fiber("journal_stream", &JournalStreamer::WriterFb, this, dest);
-  journal_cb_id_ = journal_->RegisterOnChange([this](const Entry& entry, bool allow_await) {
-    if (entry.opcode == Op::NOOP) {
-      // No recode to write, just await if data was written so consumer will read the data.
-      return AwaitIfWritten();
-    }
-    writer_.Write(entry);
-    NotifyWritten(allow_await);
-  });
+  journal_cb_id_ =
+      journal_->RegisterOnChange([this](std::string_view serialized_entry, bool allow_await) {
+        Write(io::Buffer(serialized_entry));
+        NotifyWritten(allow_await);
+      });
 }
 
 void JournalStreamer::Cancel() {
